@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/measure_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/database_service.dart';
+import 'services/stress_classifier.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 
@@ -25,6 +26,11 @@ void main() async {
     // Inisialisasi database SQLite lokal
     try {
       await DatabaseService.instance.database;
+    } catch (_) {}
+
+    // Inisialisasi model biner Random Forest
+    try {
+      await StressClassifier.loadModel();
     } catch (_) {}
   }
 
