@@ -55,15 +55,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
 
                 // Hero Section: 3D Anatomical Heart with Floating Glass Info Cards
-                _buildHeroAnatomicalHeart(),
+                RepaintBoundary(child: _buildHeroAnatomicalHeart()),
                 const SizedBox(height: 20),
 
                 // Blue Highlight Card (Card Utama BPM)
-                BlueHighlightCard(
-                  bpm: _latestMeasurement?.bpm ?? 72.0,
-                  title: 'Heart Rate Monitor',
-                  subtitle: _latestMeasurement != null ? 'Terakhir diukur' : 'Mode Siap',
-                  onTap: () => widget.onNavigateTab(1), // ke tab Ukur
+                RepaintBoundary(
+                  child: BlueHighlightCard(
+                    bpm: _latestMeasurement?.bpm ?? 72.0,
+                    title: 'Heart Rate Monitor',
+                    subtitle: _latestMeasurement != null ? 'Terakhir diukur' : 'Mode Siap',
+                    onTap: () => widget.onNavigateTab(1), // ke tab Ukur
+                  ),
                 ),
                 const SizedBox(height: 18),
 
@@ -113,6 +115,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Image.asset(
                       'assets/images/veyora-main.png',
                       fit: BoxFit.cover,
+                      cacheWidth: 100,
+                      cacheHeight: 100,
                     ),
                   ),
                 ),
@@ -214,6 +218,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 'assets/images/heart.png',
                 height: 295,
                 fit: BoxFit.contain,
+                cacheHeight: 600,
+                cacheWidth: 600,
                 errorBuilder: (context, error, stackTrace) {
                   return Icon(
                     Icons.favorite_rounded,

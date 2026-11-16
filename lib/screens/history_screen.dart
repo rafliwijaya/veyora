@@ -86,7 +86,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
                 // Chart Section
                 if (_measurements.isNotEmpty) ...[
-                  _buildChartCard(),
+                  RepaintBoundary(child: _buildChartCard()),
                   const SizedBox(height: 20),
                 ],
 

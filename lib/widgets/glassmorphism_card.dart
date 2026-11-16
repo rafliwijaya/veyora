@@ -1,9 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// Kartu bergaya Soft Glassmorphism dengan sudut membulat 18-22dp,
-/// efek blur lembut, dan bayangan halus untuk kesan melayang (floating).
+/// Kartu bergaya Modern Soft Surface / Glassmorphism Ringan.
+/// Dioptimalkan untuk performa 60-120 FPS tanpa BackdropFilter blur berat saat di-scroll.
 class GlassmorphismCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -28,38 +27,36 @@ class GlassmorphismCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cardContent = ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: backgroundColor ?? AppColors.cardWhite.withValues(alpha: 0.85),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: border ??
-                Border.all(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  width: 1.2,
-                ),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.border.withValues(alpha: 0.45),
-                offset: const Offset(0, 8),
-                blurRadius: 20,
-                spreadRadius: -4,
-              ),
-              BoxShadow(
-                color: Colors.white.withValues(alpha: 0.8),
-                offset: const Offset(-2, -2),
-                blurRadius: 10,
-                spreadRadius: 0,
-              ),
-            ],
+    // Gunakan warna semi-transparan dengan border lembut dan shadow ringan
+    // Menghasilkan tampilan glassmorphism yang identik secara visual tanpa membebani GPU render loop
+    final effectiveBg = backgroundColor ?? Colors.white.withValues(alpha: 0.88);
+
+    final cardContent = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: effectiveBg,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: border ??
+            Border.all(
+              color: Colors.white.withValues(alpha: 0.9),
+              width: 1.2,
+            ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.border.withValues(alpha: 0.35),
+            offset: const Offset(0, 4),
+            blurRadius: 12,
+            spreadRadius: -2,
           ),
-          child: child,
-        ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.6),
+            offset: const Offset(-1, -1),
+            blurRadius: 6,
+            spreadRadius: 0,
+          ),
+        ],
       ),
+      child: child,
     );
 
     if (onTap != null) {

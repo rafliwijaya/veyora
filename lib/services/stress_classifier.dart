@@ -118,23 +118,30 @@ class StressClassifier {
     required double pnn50,
     required double lfHfRatio,
   }) {
-    // 1. Hitung fitur geometri Poincaré plot (SD1 & SD2) sesuai standar fisiologis HRV
-    // SD1 = RMSSD / sqrt(2) (variabilitas jangka pendek)
-    final double sd1 = rmssd / sqrt(2.0);
-    // SD2 = sqrt(2 * SDNN^2 - 0.5 * RMSSD^2) (variabilitas jangka panjang)
-    final double sd2Inner = 2.0 * (sdnn * sdnn) - 0.5 * (rmssd * rmssd);
-    final double sd2 = sqrt(max(0.0, sd2Inner));
-    final double sdrr = sdnn; // Pada HRV, SDRR identik dengan SDNN
+    // 1. PENYELARASAN DOMAIN FISIOLOGIS (Domain Adaptation & Anti-Outlier)
+    // SWELL-KW dilatih pada rentang RMSSD 5.5 - 26.6 ms.
+    // Jika RMSSD kamera terbaca tinggi (misal 35 - 75 ms menandakan parasimpatis sangat rileks),
+    // kita petakan secara fisiologis ke batas atas rileks SWELL-KW (12.0 - 15.5 ms)
+    // agar model Random Forest mengenali kondisi parasimpatis ini sebagai kelas 0 (Rileks),
+    // dan tidak melompat ke cabang outlier (Z-Score +29).
+    final double adaptedRmssd = _adaptRmssdToModelDomain(rmssd);
+
+    // Hitung fitur geometri Poincaré plot (SD1 & SD2)
+    final double sd1 = adaptedRmssd / sqrt(2.0);
+    final double clampedSdnn = sdnn.clamp(25.0, 120.0);
+    final double sd2Inner = 2.0 * (clampedSdnn * clampedSdnn) - 0.5 * (adaptedRmssd * adaptedRmssd);
+    final double sd2 = sqrt(max(10.0, sd2Inner));
+    final double sdrr = clampedSdnn;
 
     // Vektor fitur mentah sesuai urutan training:
     // ['HR', 'MEAN_RR', 'SDRR', 'RMSSD', 'pNN50', 'LF_HF', 'SD1', 'SD2']
     final List<double> rawFeatures = [
-      bpm,
-      meanRR,
+      bpm.clamp(45.0, 160.0),
+      meanRR.clamp(375.0, 1333.0),
       sdrr,
-      rmssd,
-      pnn50,
-      lfHfRatio,
+      adaptedRmssd,
+      pnn50.clamp(0.0, 25.0),
+      lfHfRatio.clamp(0.5, 5.0),
       sd1,
       sd2,
     ];
@@ -180,9 +187,9 @@ class StressClassifier {
 
       stressProbability = votesClass1 / _nTrees;
     } else {
-      // Fallback heuristik medis jika asset biner belum dimuat (misal pada unit test)
+      // Fallback heuristik jika asset biner belum dimuat
       double penalty = 0.0;
-      if (rmssd < 20.0) penalty += 0.45;
+      if (rmssd < 25.0) penalty += 0.45;
       if (lfHfRatio > 2.5) penalty += 0.35;
       if (bpm > 85.0) penalty += 0.20;
       stressProbability = penalty.clamp(0.0, 1.0);
@@ -236,5 +243,25 @@ class StressClassifier {
       summary: summary,
       recommendations: recommendations,
     );
+  }
+
+  /// Adaptasi fisiologis RMSSD nyata ke domain distribusi model SWELL-KW.
+  /// Pada SWELL-KW: nilai rileks berada di 13 - 15 ms, stres interupsi > 16.5 ms, dan stres tinggi < 11 ms.
+  /// Jika kamera mendeteksi RMSSD tinggi (misal 35 - 70 ms), ini dipetakan ke zona rileks SWELL-KW
+  /// agar secara klinis dan matematika model AI memberikan klasifikasi "Rileks".
+  static double _adaptRmssdToModelDomain(double realRmssd) {
+    if (realRmssd >= 35.0) {
+      // RMSSD tinggi di kamera = sangat rileks -> petakan ke zona no stress SWELL (13.5 - 14.5 ms)
+      return 14.0;
+    } else if (realRmssd >= 22.0) {
+      // RMSSD sedang = rileks wajar
+      return 13.0 + (realRmssd - 22.0) / 13.0 * 1.5;
+    } else if (realRmssd >= 12.0) {
+      // RMSSD mulai rendah = stres sedang
+      return 15.5 + (22.0 - realRmssd) / 10.0 * 2.0;
+    } else {
+      // RMSSD sangat rendah = stres berat
+      return 9.5;
+    }
   }
 }
