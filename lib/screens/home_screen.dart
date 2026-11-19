@@ -1,9 +1,13 @@
+import 'dart:math';
+import 'dart:typed_data';
 import 'run_tracker_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/measurement.dart';
 import '../services/database_service.dart';
+import '../services/stress_classifier.dart';
 import '../theme/app_colors.dart';
 import '../widgets/blue_highlight_card.dart';
 import '../widgets/glassmorphism_card.dart';
@@ -34,6 +38,129 @@ class _HomeScreenState extends State<HomeScreen> {
         _latestMeasurement = latest;
       });
     }
+  }
+
+  Future<void> _runOnDeviceBenchmark() async {
+    try {
+      HapticFeedback.mediumImpact();
+    } catch (_) {}
+
+    final m = _latestMeasurement;
+    final bpm = m?.bpm ?? 72.0;
+    final sdnn = m?.sdnn ?? 48.0;
+    final rmssd = m?.rmssd ?? 42.0;
+    final pnn50 = m?.pnn50 ?? 1.2;
+    final lfHf = m?.lfHfRatio ?? 1.3;
+    final meanRR = 60000.0 / bpm;
+
+    int modelBytes = 0;
+    final loadTimesMs = <double>[];
+    for (int i = 0; i < 30; i++) {
+      final sw = Stopwatch()..start();
+      final data = await rootBundle.load('assets/models/stress_forest.bin');
+      final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      modelBytes = bytes.length;
+      final bd = ByteData.sublistView(bytes);
+      final nTrees = bd.getUint32(0, Endian.little);
+      int totalNodes = 0;
+      for (int t = 0; t < nTrees; t++) {
+        totalNodes += bd.getUint32(4 + t * 4, Endian.little);
+      }
+      const featOffset = 804;
+      final threshOffset = featOffset + totalNodes;
+      final leftOffset = threshOffset + totalNodes * 8;
+      final rightOffset = leftOffset + totalNodes * 2;
+      Uint8List.fromList(bytes.sublist(threshOffset, leftOffset));
+      Uint8List.fromList(bytes.sublist(leftOffset, rightOffset));
+      Uint8List.fromList(bytes.sublist(rightOffset, rightOffset + totalNodes * 2));
+      sw.stop();
+      loadTimesMs.add(sw.elapsedMicroseconds / 1000.0);
+    }
+
+    await StressClassifier.loadModel();
+
+    // Warm-up 5x
+    for (int i = 0; i < 5; i++) {
+      StressClassifier.classify(
+        bpm: bpm,
+        meanRR: meanRR,
+        sdnn: sdnn,
+        rmssd: rmssd,
+        pnn50: pnn50,
+        lfHfRatio: lfHf,
+      );
+    }
+
+    final inferTimesMs = <double>[];
+    late StressClassificationResult lastResult;
+    for (int i = 0; i < 30; i++) {
+      final sw = Stopwatch()..start();
+      lastResult = StressClassifier.classify(
+        bpm: bpm,
+        meanRR: meanRR,
+        sdnn: sdnn,
+        rmssd: rmssd,
+        pnn50: pnn50,
+        lfHfRatio: lfHf,
+      );
+      sw.stop();
+      inferTimesMs.add(sw.elapsedMicroseconds / 1000.0);
+    }
+
+    double calcMean(List<double> v) => v.reduce((a, b) => a + b) / v.length;
+    double calcStd(List<double> v) {
+      final mean = calcMean(v);
+      final sq = v.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b);
+      return sqrt(sq / (v.length - 1));
+    }
+
+    final sizeMb = modelBytes / (1000 * 1000);
+    final loadMean = calcMean(loadTimesMs);
+    final loadStd = calcStd(loadTimesMs);
+    final inferMean = calcMean(inferTimesMs);
+    final inferStd = calcStd(inferTimesMs);
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Benchmark On-Device (30×)',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 17),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              m != null
+                  ? 'Data Uji: Rekaman Terakhir (${bpm.toStringAsFixed(0)} bpm, RMSSD ${rmssd.toStringAsFixed(1)} ms)'
+                  : 'Data Uji: Sampel Default (72 bpm, RMSSD 42.0 ms)',
+              style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            Text('• Ukuran Model: ${sizeMb.toStringAsFixed(2)} MB ($modelBytes B)',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 6),
+            Text('• Load Time: ${loadMean.toStringAsFixed(2)} ± ${loadStd.toStringAsFixed(2)} ms',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 6),
+            Text('• Inference Latency: ${inferMean.toStringAsFixed(3)} ± ${inferStd.toStringAsFixed(3)} ms',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.brightBlue)),
+            const SizedBox(height: 10),
+            Text('Output AI: ${lastResult.status} (Score ${lastResult.stressScore.toStringAsFixed(1)}%)',
+                style: GoogleFonts.inter(fontSize: 12, color: AppColors.textSecondary)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -143,9 +270,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        // Refresh / Status Pill
+        // Refresh / Status Pill (Tekan lama untuk benchmark 30x on-device)
         GestureDetector(
           onTap: _loadLatestMeasurement,
+          onLongPress: _runOnDeviceBenchmark,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
